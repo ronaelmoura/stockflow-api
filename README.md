@@ -86,6 +86,29 @@ npm run dev
 | `npm run outbox:drain` | Processa eventos transacionais pendentes |
 | `npm run db:reset` | Recria apenas bancos cujo nome começa com `stockflow` |
 | `npm run test:coverage` | Gera relatório de cobertura das regras de negócio |
+| `npm run test:integration` | Roda os testes de integração contra um MySQL real (ver abaixo) |
+
+## Testes de integração
+
+Além dos testes unitários (`npm test`, sem dependências externas), o projeto
+tem testes de integração em `tests/*.integration.test.ts` que sobem a
+aplicação real com Supertest contra um MySQL de verdade, para provar
+comportamentos que só existem no banco: o lock de linha (`FOR UPDATE`) que
+impede overselling quando dois pedidos confirmam ao mesmo tempo, o replay de
+`Idempotency-Key` não duplicando pedidos, e o controle de concorrência
+otimista (`expectedVersion`) nas movimentações de estoque.
+
+Para rodar localmente, aponte `DATABASE_URL` para um banco cujo nome termine
+em `_test` (é uma checagem de segurança do próprio teste, pra nunca rodar
+sem querer contra o banco de desenvolvimento):
+
+```bash
+DATABASE_URL=mysql://stockflow:stockflow@localhost:3306/stockflow_test npm run db:migrate
+DATABASE_URL=mysql://stockflow:stockflow@localhost:3306/stockflow_test npm run test:integration
+```
+
+No CI, um job separado (`integration`) sobe um serviço MySQL só para isso e
+roda esses testes em todo Pull Request.
 
 ## Exemplo de pedido idempotente
 

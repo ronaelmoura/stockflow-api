@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    exclude: ["**/node_modules/**", "tests/**/*.integration.test.ts"],
     coverage: { reporter: ["text", "html"], include: ["src/**/*.ts"] }
   }
 });
