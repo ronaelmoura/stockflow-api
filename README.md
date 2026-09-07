@@ -127,3 +127,15 @@ Consulte [SECURITY.md](SECURITY.md). Nunca reutilize as credenciais ou a chave J
 ## Autor
 
 Desenvolvido por [Ronael Moura](https://github.com/ronaelmoura) — criador da [Ronas Tech](https://www.ronastech.com.br/).
+
+## Estudo técnico: reservar estoque ao confirmar um pedido
+
+**Contexto.** Dois pedidos podem disputar o mesmo saldo disponível. Consultar o saldo e alterá-lo em operações independentes deixa espaço para decisões baseadas em dados desatualizados.
+
+**Decisão implementada.** A [rota de confirmação](src/modules/orders/order.routes.ts) usa uma transação e consulta o estoque com `SELECT ... FOR UPDATE`. Calcula a disponibilidade como `quantity - reserved`; saldo insuficiente gera `409 INSUFFICIENT_STOCK`. A reserva, o movimento, a atualização do pedido, a auditoria e a Outbox são escritos dentro da transação. A expedição é uma etapa separada da reserva.
+
+**Alternativas para comparação.** Baixar o estoque físico na criação simplificaria o fluxo, mas misturaria intenção de compra com expedição. Uma leitura sem bloqueio exigiria outra estratégia de controle concorrente. Essas alternativas explicam os compromissos do desenho, não uma decisão histórica de uma equipe.
+
+**Evidência e reprodução.** Consulte as [decisões de arquitetura](docs/ARCHITECTURE.md), as [regras testadas](tests/order.rules.test.ts) e o [cenário demonstrativo](scripts/demo-scenario.ts). Com ambiente local e banco configurados, `npm run demo:scenario` executa o fluxo demonstrativo. Os testes de regras não comprovam, por si só, concorrência real em MySQL; a revisão documental não executou um teste de carga.
+
+**Limite.** Bloqueios têm custo de contenção. Carga concorrente, deadlocks, retentativas e comportamento do consumidor da Outbox precisam de validação própria antes de uso crítico. Não há resultados de desempenho comercial declarados neste case.
