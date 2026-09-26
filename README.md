@@ -1,23 +1,27 @@
 # StockFlow API
 
-API REST de estoque e pedidos construída para demonstrar backend de produção: regras de negócio, concorrência, segurança, banco relacional, documentação e observabilidade.
+API backend para gerenciamento de estoque desenvolvida com foco em consistência de dados, regras de negócio e confiabilidade.
 
-> Projeto de portfólio de **Ronael Moura / Ronas Tech**. Os dados de demonstração são fictícios.
+O projeto explora problemas recorrentes em sistemas de estoque, como concorrência, idempotência, controle de acesso e consistência entre operações. Em vez de tratar o estoque como CRUD simples, implementa mecanismos para proteger regras do domínio quando múltiplas operações ocorrem simultaneamente.
 
-## Por que este projeto chama atenção
+## Principais desafios técnicos
 
-Não é apenas um CRUD. O StockFlow trata problemas comuns de sistemas reais:
+- Reservas e movimentações de estoque transacionais
+- Controle de concorrência
+- Idempotência com `Idempotency-Key`
+- Máquina de estados para o domínio
+- Ledger imutável e Outbox Pattern
+- RBAC
+- Access token e rotação de refresh token
+- Validação com Zod
+- Logs estruturados e `x-request-id`
+- Testes automatizados e OpenAPI
 
-- reserva de estoque dentro de transações MySQL;
-- proteção contra pedidos duplicados com `Idempotency-Key`;
-- concorrência otimista em movimentações de estoque;
-- máquina de estados para impedir transições inválidas;
-- ledger imutável de movimentações e trilha de auditoria;
-- Outbox Pattern para eventos confiáveis;
-- autenticação com access token curto e rotação de refresh token;
-- autorização por papéis: `ADMIN`, `MANAGER`, `OPERATOR` e `VIEWER`;
-- documentação OpenAPI interativa com Scalar;
-- logs estruturados e rastreamento por `x-request-id`.
+## Objetivo
+
+Demonstrar como decisões de engenharia podem resolver problemas de consistência e confiabilidade em uma API orientada a regras de negócio.
+
+---
 
 ## Stack
 
