@@ -1,97 +1,71 @@
 # StockFlow API
 
-API backend para gerenciamento de estoque desenvolvida com foco em consistência de dados, regras de negócio e confiabilidade.
+API REST de estoque e pedidos construída para explorar problemas de backend que aparecem em sistemas reais: regras de negócio, concorrência, consistência, segurança e observabilidade.
 
-O projeto explora problemas recorrentes em sistemas de estoque, como concorrência, idempotência, controle de acesso e consistência entre operações. Em vez de tratar o estoque como CRUD simples, implementa mecanismos para proteger regras do domínio quando múltiplas operações ocorrem simultaneamente.
+O foco não é CRUD. O projeto demonstra como proteger operações críticas quando múltiplas ações podem acontecer simultaneamente.
 
-## Principais desafios técnicos
+## O que este projeto demonstra
 
-- Reservas e movimentações de estoque transacionais
-- Controle de concorrência
+- Transações para operações críticas de estoque
+- Controle de concorrência com `SELECT ... FOR UPDATE`
 - Idempotência com `Idempotency-Key`
-- Máquina de estados para o domínio
+- Máquina de estados para pedidos
 - Ledger imutável e Outbox Pattern
-- RBAC
-- Access token e rotação de refresh token
-- Validação com Zod
+- RBAC e autenticação com rotação de refresh token
+- Validação de entrada com Zod
 - Logs estruturados e `x-request-id`
-- Testes automatizados e OpenAPI
+- Contrato OpenAPI e testes automatizados
 
-## Objetivo
+## Problema técnico central
 
-Demonstrar como decisões de engenharia podem resolver problemas de consistência e confiabilidade em uma API orientada a regras de negócio.
+Dois pedidos podem disputar o mesmo saldo disponível. Uma leitura do estoque seguida de uma atualização independente pode tomar decisões com dados desatualizados.
 
----
-
-## Stack
-
-Node.js 22, TypeScript, Express 5, MySQL 8, Zod, JWT, bcrypt, Pino, Scalar, Vitest e Docker.
-
-## Fluxo principal
-
-```mermaid
-flowchart LR
-  A[Pedido em rascunho] -->|Confirmar| B[Reserva transacional]
-  B -->|Estoque disponível| C[Pedido confirmado]
-  B -->|Saldo insuficiente| D[409 sem alteração]
-  C -->|Expedir| E[Baixa física + evento]
-  C -->|Cancelar| F[Liberação da reserva]
-```
-
-Cada mudança crítica grava, na mesma transação:
-
-1. o novo estado do pedido ou estoque;
-2. o movimento de inventário;
-3. o evento de auditoria;
-4. o evento pendente da Outbox.
-
-Mais detalhes em [Decisões de arquitetura](docs/ARCHITECTURE.md).
-
-## Executando com Docker
-
-```bash
-cp .env.example .env
-docker compose up --build
-```
-
-Acesse:
-
-- API: `http://localhost:3333`
-- documentação: `http://localhost:3333/docs`
-- especificação: `http://localhost:3333/openapi.json`
-
-Credenciais locais do seed:
+Na confirmação do pedido, o StockFlow executa uma transação e bloqueia a linha de estoque durante a operação:
 
 ```text
-admin@stockflow.dev
-StockFlow@2026
+Pedido em rascunho
+      │
+      ▼
+Reserva transacional
+   │         │
+   │         └── saldo insuficiente → 409
+   ▼
+Pedido confirmado
+   │
+   ├── movimento de inventário
+   ├── auditoria
+   └── evento Outbox
 ```
 
-## Executando sem Docker
+A expedição é tratada como uma etapa separada da reserva.
 
-Com um MySQL 8 disponível:
+## Decisão de engenharia
 
-```bash
-npm install
-cp .env.example .env
-npm run db:migrate
-npm run db:seed
-npm run dev
+A rota de confirmação usa `SELECT ... FOR UPDATE` para proteger o estoque durante a transação. A disponibilidade é calculada como:
+
+```text
+quantidade disponível = quantidade - reservado
 ```
 
-## Scripts que demonstram engenharia
+Se o saldo for insuficiente, a operação retorna `409 INSUFFICIENT_STOCK` sem confirmar o pedido.
 
-| Script | Objetivo |
-|---|---|
-| `npm run quality` | Executa tipos, lint, testes e validação OpenAPI |
-| `npm run demo:scenario` | Cria, confirma e expede um pedido pela API |
-| `npm run routes:audit` | Exibe o catálogo público de operações |
-| `npm run openapi:validate` | Valida o contrato e detecta rotas não documentadas |
-| `npm run outbox:drain` | Processa eventos transacionais pendentes |
-| `npm run db:reset` | Recria apenas bancos cujo nome começa com `stockflow` |
-| `npm run test:coverage` | Gera relatório de cobertura das regras de negócio |
+A reserva, o movimento, a atualização do pedido, a auditoria e o evento Outbox são gravados dentro da mesma transação.
 
-## Exemplo de pedido idempotente
+### Por que não um CRUD simples?
+
+Porque o problema principal não é cadastrar produtos. É manter invariantes do domínio quando operações concorrentes disputam o mesmo recurso.
+
+## Idempotência
+
+Operações que podem ser repetidas aceitam `Idempotency-Key`.
+
+```http
+Idempotency-Key: checkout-2026-0001
+```
+
+Repetir uma solicitação com a mesma chave retorna o recurso original em vez de criar outro pedido.
+
+Exemplo:
 
 ```bash
 curl -X POST http://localhost:3333/api/v1/orders \
@@ -109,7 +83,49 @@ curl -X POST http://localhost:3333/api/v1/orders \
   }'
 ```
 
-Repetir a chamada com a mesma chave retorna o recurso original em vez de criar outro pedido.
+## Stack
+
+Node.js 22 · TypeScript · Express 5 · MySQL 8 · Zod · JWT · bcrypt · Pino · Scalar · Vitest · Docker
+
+## Fluxo principal
+
+```mermaid
+flowchart LR
+  A[Pedido em rascunho] -->|Confirmar| B[Reserva transacional]
+  B -->|Estoque disponível| C[Pedido confirmado]
+  B -->|Saldo insuficiente| D[409 sem alteração]
+  C -->|Expedir| E[Baixa física + evento]
+  C -->|Cancelar| F[Liberação da reserva]
+```
+
+## Controle de acesso
+
+| Papel | Objetivo |
+|---|---|
+| ADMIN | Administração completa |
+| MANAGER | Gestão operacional |
+| OPERATOR | Operações de estoque e pedidos |
+| VIEWER | Consulta |
+
+## Documentação da API
+
+O projeto expõe contrato OpenAPI e documentação interativa:
+
+- `/docs`
+- `/openapi.json`
+
+Também possui validação automatizada para detectar operações não documentadas.
+
+## Scripts que demonstram engenharia
+
+| Script | Objetivo |
+|---|---|
+| `npm run quality` | Tipos, lint, testes e validação OpenAPI |
+| `npm run demo:scenario` | Executa o fluxo de criação, confirmação e expedição |
+| `npm run routes:audit` | Audita o catálogo público de operações |
+| `npm run openapi:validate` | Valida o contrato da API |
+| `npm run outbox:drain` | Processa eventos transacionais pendentes |
+| `npm run test:coverage` | Gera cobertura das regras de negócio |
 
 ## Estrutura
 
@@ -124,22 +140,57 @@ src/
 └── server.ts        ciclo de vida do processo
 ```
 
+## Executar com Docker
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+Acesse:
+
+- API: `http://localhost:3333`
+- documentação: `http://localhost:3333/docs`
+- OpenAPI: `http://localhost:3333/openapi.json`
+
+## Executar sem Docker
+
+Com MySQL 8 disponível:
+
+```bash
+npm install
+cp .env.example .env
+npm run db:migrate
+npm run db:seed
+npm run dev
+```
+
 ## Segurança
 
-Consulte [SECURITY.md](SECURITY.md). Nunca reutilize as credenciais ou a chave JWT de desenvolvimento em produção.
+- Access tokens de curta duração
+- Rotação de refresh tokens
+- RBAC
+- Validação de entrada com Zod
+- Senhas com bcrypt
+- Logs estruturados
+- Request ID para rastreabilidade
+
+Consulte [SECURITY.md](SECURITY.md) para detalhes.
+
+## Limites do case
+
+Este projeto demonstra estratégias de consistência e confiabilidade, mas não declara escala ou desempenho comercial.
+
+Os testes de regras não comprovam, sozinhos, concorrência real em MySQL. Carga concorrente, deadlocks, retentativas e comportamento do consumidor da Outbox exigem validação própria antes de uso crítico.
 
 ## Autor
 
-Desenvolvido por [Ronael Moura](https://github.com/ronaelmoura) — criador da [Ronas Tech](https://www.ronastech.com.br/).
+**Ronael Moura — Desenvolvedor Full Stack**
 
-## Estudo técnico: reservar estoque ao confirmar um pedido
+- [GitHub](https://github.com/ronaelmoura)
+- [Portfólio](https://ronaelmoura.github.io/portfolio-ronael-moura/)
+- [Ronas Tech](https://www.ronastech.com.br/)
 
-**Contexto.** Dois pedidos podem disputar o mesmo saldo disponível. Consultar o saldo e alterá-lo em operações independentes deixa espaço para decisões baseadas em dados desatualizados.
+---
 
-**Decisão implementada.** A [rota de confirmação](src/modules/orders/order.routes.ts) usa uma transação e consulta o estoque com `SELECT ... FOR UPDATE`. Calcula a disponibilidade como `quantity - reserved`; saldo insuficiente gera `409 INSUFFICIENT_STOCK`. A reserva, o movimento, a atualização do pedido, a auditoria e a Outbox são escritos dentro da transação. A expedição é uma etapa separada da reserva.
-
-**Alternativas para comparação.** Baixar o estoque físico na criação simplificaria o fluxo, mas misturaria intenção de compra com expedição. Uma leitura sem bloqueio exigiria outra estratégia de controle concorrente. Essas alternativas explicam os compromissos do desenho, não uma decisão histórica de uma equipe.
-
-**Evidência e reprodução.** Consulte as [decisões de arquitetura](docs/ARCHITECTURE.md), as [regras testadas](tests/order.rules.test.ts) e o [cenário demonstrativo](scripts/demo-scenario.ts). Com ambiente local e banco configurados, `npm run demo:scenario` executa o fluxo demonstrativo. Os testes de regras não comprovam, por si só, concorrência real em MySQL; a revisão documental não executou um teste de carga.
-
-**Limite.** Bloqueios têm custo de contenção. Carga concorrente, deadlocks, retentativas e comportamento do consumidor da Outbox precisam de validação própria antes de uso crítico. Não há resultados de desempenho comercial declarados neste case.
+**StockFlow API** · backend engineering case · TypeScript + Node.js + MySQL
